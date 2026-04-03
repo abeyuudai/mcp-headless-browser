@@ -33,9 +33,16 @@ export class KeychainAdapter {
 
   setCredentials(service: string, account: string, password: string): void {
     const serviceName = this.getServiceName(service);
-    // -U updates existing entry if present
+    // Delete existing entry first (service is unique key, account may change)
+    try {
+      execSync(`security delete-generic-password -s ${quote(serviceName)} 2>/dev/null`, {
+        encoding: "utf-8",
+      });
+    } catch {
+      // Not found — ok
+    }
     execSync(
-      `security add-generic-password -s ${quote(serviceName)} -a ${quote(account)} -w ${quote(password)} -U`,
+      `security add-generic-password -s ${quote(serviceName)} -a ${quote(account)} -w ${quote(password)}`,
       { encoding: "utf-8" }
     );
   }
