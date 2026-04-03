@@ -1,12 +1,10 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { chromium } from "playwright";
+import { chromium, type Browser } from "playwright";
 import type { SessionManager } from "../session-manager.js";
 
 const USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
-
-const POLL_INTERVAL_MS = 2000;
 
 export function registerBrowseLogin(
   server: McpServer,
@@ -29,12 +27,12 @@ export function registerBrowseLogin(
         .describe("手動ログインのタイムアウト（分、デフォルト: 5）"),
     },
     async ({ service, url, timeout_minutes }) => {
-      let browser;
+      let browser: Browser | undefined;
       try {
-        // Load existing session if available
         const existingState = await sessionManager.load(service);
 
-        browser = await chromium.launch({ headless: false });
+        const b = await chromium.launch({ headless: false });
+        browser = b;
         const context = await browser.newContext({
           ...(existingState
             ? { storageState: existingState as never }
@@ -48,25 +46,47 @@ export function registerBrowseLogin(
           timeout: 30000,
         });
 
-        // Poll storageState until browser is closed or timeout
+        // Event-driven: save storageState on navigation events (no polling)
         let lastStorageState = await context.storageState();
-        const timeoutMs = timeout_minutes * 60 * 1000;
-        const startTime = Date.now();
 
-        while (Date.now() - startTime < timeoutMs) {
+        const saveState = async () => {
           try {
-            await page.waitForTimeout(POLL_INTERVAL_MS);
             lastStorageState = await context.storageState();
           } catch {
-            // Browser was closed by user
-            break;
+            // Browser/context already closed
+          }
+        };
+
+        page.on("load", saveState);
+        page.on("framenavigated", saveState);
+
+        const timeoutMs = timeout_minutes * 60 * 1000;
+
+        // Wait for: page close (user closes tab/window), browser disconnect, or timeout
+        const reason = await Promise.race([
+          new Promise<"page_closed">((resolve) =>
+            page.on("close", () => resolve("page_closed"))
+          ),
+          new Promise<"disconnected">((resolve) =>
+            b.on("disconnected", () => resolve("disconnected"))
+          ),
+          new Promise<"timeout">((_, reject) =>
+            setTimeout(() => reject(new Error("ログインがタイムアウトしました")), timeoutMs)
+          ),
+        ]);
+
+        // On page close, browser is still alive — get final storageState
+        if (reason === "page_closed") {
+          try {
+            lastStorageState = await context.storageState();
+          } catch {
+            // Context already gone
           }
         }
+        // On disconnected, browser is dead — use lastStorageState from navigation events
 
-        // Save the last captured storageState
         await sessionManager.save(service, lastStorageState);
 
-        // Close browser if still open
         try {
           await browser.close();
         } catch {
