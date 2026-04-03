@@ -1,18 +1,99 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { chromium, type Browser } from "playwright";
+import { chromium, type Browser, type Page } from "playwright";
 import type { SessionManager } from "../session-manager.js";
+import { KeychainAdapter } from "../keychain-adapter.js";
 
 const USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+
+// Common username/password selectors (tried in order)
+const DEFAULT_USERNAME_SELECTORS = [
+  'input[type="email"]',
+  'input[name="email"]',
+  'input[name="username"]',
+  'input[name="user"]',
+  'input[name="login"]',
+  'input[name="loginEmail"]',
+  'input[name="u"]',
+  'input[name="id"]',
+  'input[type="text"]',
+];
+
+const DEFAULT_PASSWORD_SELECTORS = [
+  'input[type="password"]',
+  'input[name="password"]',
+  'input[name="pass"]',
+  'input[name="passwd"]',
+];
+
+async function autoFill(
+  page: Page,
+  account: string,
+  password: string,
+  usernameSelector?: string,
+  passwordSelector?: string
+): Promise<string[]> {
+  const log: string[] = [];
+
+  // Username
+  const userSelectors = usernameSelector
+    ? [usernameSelector]
+    : DEFAULT_USERNAME_SELECTORS;
+
+  let filled = false;
+  for (const sel of userSelectors) {
+    try {
+      const el = await page.$(sel);
+      if (el && await el.isVisible()) {
+        await el.fill(account);
+        log.push(`ユーザー名を入力 (${sel})`);
+        filled = true;
+        break;
+      }
+    } catch {
+      // Selector not found or not fillable
+    }
+  }
+  if (!filled) {
+    log.push("ユーザー名フィールドが見つかりません — 手動で入力してください");
+  }
+
+  // Password
+  const passSelectors = passwordSelector
+    ? [passwordSelector]
+    : DEFAULT_PASSWORD_SELECTORS;
+
+  filled = false;
+  for (const sel of passSelectors) {
+    try {
+      const el = await page.$(sel);
+      if (el && await el.isVisible()) {
+        await el.fill(password);
+        log.push(`パスワードを入力 (${sel})`);
+        filled = true;
+        break;
+      }
+    } catch {
+      // Selector not found or not fillable
+    }
+  }
+  if (!filled) {
+    log.push("パスワードフィールドが見つかりません — 手動で入力してください");
+  }
+
+  return log;
+}
 
 export function registerBrowseLogin(
   server: McpServer,
   sessionManager: SessionManager
 ): void {
+  const keychain = new KeychainAdapter();
+
   server.tool(
     "browse_login",
-    "ブラウザを画面付き（headed）で起動し、手動ログインできるようにします。ログイン完了後にブラウザを閉じると、セッション（Cookie）が自動保存されます。2FA や CAPTCHA も手動で対応可能です。GUI 環境が必要です。",
+    "ブラウザを画面付き（headed）で起動しログインします。Keychain に認証情報があれば自動入力します（2FA/CAPTCHA は手動）。ログイン完了後にブラウザを閉じるとセッションが保存されます。GUI 環境が必要です。",
     {
       service: z
         .string()
@@ -25,8 +106,16 @@ export function registerBrowseLogin(
         .max(30)
         .default(5)
         .describe("手動ログインのタイムアウト（分、デフォルト: 5）"),
+      username_selector: z
+        .string()
+        .optional()
+        .describe("ユーザー名フィールドの CSS セレクタ（省略時は汎用セレクタで自動検出）"),
+      password_selector: z
+        .string()
+        .optional()
+        .describe("パスワードフィールドの CSS セレクタ（省略時は汎用セレクタで自動検出）"),
     },
-    async ({ service, url, timeout_minutes }) => {
+    async ({ service, url, timeout_minutes, username_selector, password_selector }) => {
       let browser: Browser | undefined;
       try {
         const existingState = await sessionManager.load(service);
@@ -40,25 +129,52 @@ export function registerBrowseLogin(
           userAgent: USER_AGENT,
           locale: "ja-JP",
         });
+        // Close popup tabs immediately (ad/tracking popups from sites like Rakuten)
+        context.on("page", (popup) => {
+          popup.close().catch(() => {});
+        });
+
         const page = await context.newPage();
         await page.goto(url, {
           waitUntil: "domcontentloaded",
           timeout: 30000,
         });
 
-        // Event-driven: save storageState on navigation events (no polling)
+        // Auto-fill from Keychain if credentials exist
+        const autoFillLog: string[] = [];
+        const creds = keychain.getCredentials(service);
+        if (creds) {
+          await page.waitForTimeout(500); // Wait for form to render
+          const log = await autoFill(page, creds.account, creds.password, username_selector, password_selector);
+          autoFillLog.push(...log);
+        } else {
+          autoFillLog.push("Keychain に認証情報なし — 手動で入力してください");
+        }
+
+        // Event-driven: save storageState on main frame navigation only
+        // (iframe navigations are ignored — ad iframes like Criteo/DoubleClick
+        // can fire 100+ framenavigated events and overwhelm the browser)
         let lastStorageState = await context.storageState();
+        let saving = false;
 
         const saveState = async () => {
+          if (saving) return;
+          saving = true;
           try {
             lastStorageState = await context.storageState();
           } catch {
             // Browser/context already closed
+          } finally {
+            saving = false;
           }
         };
 
         page.on("load", saveState);
-        page.on("framenavigated", saveState);
+        page.on("framenavigated", (frame) => {
+          if (frame === page.mainFrame()) {
+            saveState();
+          }
+        });
 
         const timeoutMs = timeout_minutes * 60 * 1000;
 
@@ -83,7 +199,6 @@ export function registerBrowseLogin(
             // Context already gone
           }
         }
-        // On disconnected, browser is dead — use lastStorageState from navigation events
 
         await sessionManager.save(service, lastStorageState);
 
@@ -98,13 +213,15 @@ export function registerBrowseLogin(
           timeZone: "Asia/Tokyo",
         });
 
+        const message = [
+          `サービス "${service}" のセッションを保存しました。`,
+          `最終更新: ${updatedAt}`,
+          "",
+          ...autoFillLog,
+        ].join("\n");
+
         return {
-          content: [
-            {
-              type: "text" as const,
-              text: `サービス "${service}" のセッションを保存しました。\n最終更新: ${updatedAt}`,
-            },
-          ],
+          content: [{ type: "text" as const, text: message }],
         };
       } catch (error) {
         try {
