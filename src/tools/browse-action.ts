@@ -19,6 +19,7 @@ const actionSchema = z.object({
   selector: z.string().optional().describe("CSS セレクタ（click, fill, select, extract_text, extract_html で使用）"),
   value: z.string().optional().describe("入力値（fill の値、select の option value、goto の URL）"),
   wait_ms: z.number().optional().describe("待機時間（ms）。wait アクションで使用（デフォルト: 1000）"),
+  force: z.boolean().optional().describe("click で visibility チェックをスキップする（SPA のカスタムコンポーネント対策）"),
 });
 
 // Common login page URL patterns
@@ -164,7 +165,7 @@ export function registerBrowseAction(
             case "click":
               if (!action.selector)
                 throw new Error("click requires selector");
-              await page.click(action.selector);
+              await page.click(action.selector, { force: action.force ?? false });
               results.push(`[click] ${action.selector}`);
               break;
 
