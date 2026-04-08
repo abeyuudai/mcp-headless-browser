@@ -1,89 +1,9 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { chromium, type Browser, type Page } from "playwright";
+import { chromium, type Browser } from "playwright";
 import type { SessionManager } from "../session-manager.js";
 import { KeychainAdapter } from "../keychain-adapter.js";
-
-const USER_AGENT =
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
-
-// Common username/password selectors (tried in order)
-const DEFAULT_USERNAME_SELECTORS = [
-  'input[type="email"]',
-  'input[name="email"]',
-  'input[name="username"]',
-  'input[name="user"]',
-  'input[name="login"]',
-  'input[name="loginEmail"]',
-  'input[name="u"]',
-  'input[name="id"]',
-  'input[type="text"]',
-];
-
-const DEFAULT_PASSWORD_SELECTORS = [
-  'input[type="password"]',
-  'input[name="password"]',
-  'input[name="pass"]',
-  'input[name="passwd"]',
-];
-
-async function autoFill(
-  page: Page,
-  account: string,
-  password: string,
-  usernameSelector?: string,
-  passwordSelector?: string
-): Promise<string[]> {
-  const log: string[] = [];
-
-  // Username
-  const userSelectors = usernameSelector
-    ? [usernameSelector]
-    : DEFAULT_USERNAME_SELECTORS;
-
-  let filled = false;
-  for (const sel of userSelectors) {
-    try {
-      const el = await page.$(sel);
-      if (el && await el.isVisible()) {
-        await el.fill(account);
-        log.push(`ユーザー名を入力 (${sel})`);
-        filled = true;
-        break;
-      }
-    } catch {
-      // Selector not found or not fillable
-    }
-  }
-  if (!filled) {
-    log.push("ユーザー名フィールドが見つかりません — 手動で入力してください");
-  }
-
-  // Password
-  const passSelectors = passwordSelector
-    ? [passwordSelector]
-    : DEFAULT_PASSWORD_SELECTORS;
-
-  filled = false;
-  for (const sel of passSelectors) {
-    try {
-      const el = await page.$(sel);
-      if (el && await el.isVisible()) {
-        await el.fill(password);
-        log.push(`パスワードを入力 (${sel})`);
-        filled = true;
-        break;
-      }
-    } catch {
-      // Selector not found or not fillable
-    }
-  }
-  if (!filled) {
-    log.push("パスワードフィールドが見つかりません — 手動で入力してください");
-  }
-
-  return log;
-}
+import { USER_AGENT, autoFill } from "./_browser-helpers.js";
 
 export function registerBrowseLogin(
   server: McpServer,

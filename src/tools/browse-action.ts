@@ -3,9 +3,7 @@ import { z } from "zod";
 import { chromium } from "playwright";
 import type { SessionManager } from "../session-manager.js";
 import { KeychainAdapter } from "../keychain-adapter.js";
-
-const USER_AGENT =
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+import { USER_AGENT, detectLoginRedirect } from "./_browser-helpers.js";
 
 const keychainRefSchema = z.object({
   service: z.string().describe("Keychain のサービス名"),
@@ -30,23 +28,6 @@ const actionSchema = z.object({
   wait_ms: z.number().optional().describe("待機時間（ms）。wait アクションで使用（デフォルト: 1000）"),
   force: z.boolean().optional().describe("click で visibility チェックをスキップする（SPA のカスタムコンポーネント対策）"),
 });
-
-// Common login page URL patterns
-const LOGIN_URL_PATTERNS = [
-  /login/i,
-  /signin/i,
-  /sign-in/i,
-  /auth/i,
-  /sso/i,
-  /cas\/login/i,
-];
-
-function detectLoginRedirect(initialUrl: string, currentUrl: string): boolean {
-  // Only flag if we were redirected to a different URL that looks like a login page
-  if (initialUrl === currentUrl) return false;
-  const currentPath = new URL(currentUrl).pathname + new URL(currentUrl).search;
-  return LOGIN_URL_PATTERNS.some((pattern) => pattern.test(currentPath));
-}
 
 export function registerBrowseAction(
   server: McpServer,
