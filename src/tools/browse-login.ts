@@ -129,10 +129,10 @@ export function registerBrowseLogin(
           userAgent: USER_AGENT,
           locale: "ja-JP",
         });
-        // Close popup tabs immediately (ad/tracking popups from sites like Rakuten)
-        context.on("page", (popup) => {
-          popup.close().catch(() => {});
-        });
+        // NOTE: popup auto-close disabled — it was killing SSO redirect pages
+        // context.on("page", (popup) => {
+        //   popup.close().catch(() => {});
+        // });
 
         const page = await context.newPage();
         await page.goto(url, {
