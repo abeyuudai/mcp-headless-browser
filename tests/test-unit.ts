@@ -6,6 +6,7 @@
 
 import { SessionManager } from "../src/session-manager.js";
 import { KeychainAdapter } from "../src/keychain-adapter.js";
+import { execSync } from "node:child_process";
 import { unlink } from "node:fs/promises";
 
 let failures = 0;
@@ -106,6 +107,31 @@ async function testKeychainAdapter() {
   }
 }
 
+async function testKeychainGetPasswordByRef() {
+  console.log("\n=== KeychainAdapter.getPasswordByRef ===");
+  const kc = new KeychainAdapter();
+  const svc = "__test_kc_ref__";
+  const acct = "test-ref-user";
+
+  try {
+    execSync(`security add-generic-password -s "${svc}" -a "${acct}" -w "secret123"`);
+    const password = kc.getPasswordByRef(svc, acct);
+    assert("returns correct password", password === "secret123");
+
+    // Unknown account should throw
+    let threw = false;
+    try { kc.getPasswordByRef(svc, "nonexistent"); } catch { threw = true; }
+    assert("throws for unknown account", threw);
+
+    // Unknown service should throw
+    threw = false;
+    try { kc.getPasswordByRef("__no_such_svc__", acct); } catch { threw = true; }
+    assert("throws for unknown service", threw);
+  } finally {
+    try { execSync(`security delete-generic-password -s "${svc}" -a "${acct}" 2>/dev/null`); } catch { /* ok */ }
+  }
+}
+
 async function testLoginRedirectDetection() {
   console.log("\n=== セッション切れ検出 ===");
 
@@ -151,6 +177,7 @@ async function main() {
   console.log("=== ユニットテスト ===");
   await testSessionManager();
   await testKeychainAdapter();
+  await testKeychainGetPasswordByRef();
   await testLoginRedirectDetection();
 
   console.log(`\n=== 結果: ${failures === 0 ? "全テスト合格 ✓" : `${failures} 件失敗 ✗`} ===\n`);

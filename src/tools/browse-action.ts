@@ -2,9 +2,15 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { chromium } from "playwright";
 import type { SessionManager } from "../session-manager.js";
+import { KeychainAdapter } from "../keychain-adapter.js";
 
 const USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+
+const keychainRefSchema = z.object({
+  service: z.string().describe("Keychain のサービス名"),
+  account: z.string().describe("Keychain のアカウント名"),
+});
 
 const actionSchema = z.object({
   type: z.enum([
@@ -18,6 +24,9 @@ const actionSchema = z.object({
   ]),
   selector: z.string().optional().describe("CSS セレクタ（click, fill, select, extract_text, extract_html で使用）"),
   value: z.string().optional().describe("入力値（fill の値、select の option value、goto の URL）"),
+  keychain: keychainRefSchema.optional().describe(
+    "Keychain 参照（fill で使用）。指定すると value の代わりに Keychain から取得した値を入力する"
+  ),
   wait_ms: z.number().optional().describe("待機時間（ms）。wait アクションで使用（デフォルト: 1000）"),
   force: z.boolean().optional().describe("click で visibility チェックをスキップする（SPA のカスタムコンポーネント対策）"),
 });
@@ -43,6 +52,7 @@ export function registerBrowseAction(
   server: McpServer,
   sessionManager: SessionManager
 ): void {
+  const keychain = new KeychainAdapter();
   server.tool(
     "browse_action",
     "保存済みセッション（Cookie）を使って認証済みページにアクセスし、操作を実行します。セッション切れの場合はエラーを返します。",
@@ -169,14 +179,30 @@ export function registerBrowseAction(
               results.push(`[click] ${action.selector}`);
               break;
 
-            case "fill":
+            case "fill": {
               if (!action.selector)
                 throw new Error("fill requires selector");
-              if (action.value === undefined)
-                throw new Error("fill requires value");
-              await page.fill(action.selector, action.value);
-              results.push(`[fill] ${action.selector}`);
+
+              let fillValue: string;
+              if (action.keychain) {
+                fillValue = keychain.getPasswordByRef(
+                  action.keychain.service,
+                  action.keychain.account
+                );
+              } else if (action.value !== undefined) {
+                fillValue = action.value;
+              } else {
+                throw new Error("fill requires either value or keychain");
+              }
+
+              await page.fill(action.selector, fillValue);
+              results.push(
+                action.keychain
+                  ? `[fill] ${action.selector} (keychain: ${action.keychain.service}/${action.keychain.account})`
+                  : `[fill] ${action.selector}`
+              );
               break;
+            }
 
             case "select":
               if (!action.selector)

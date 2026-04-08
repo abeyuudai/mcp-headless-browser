@@ -50,6 +50,18 @@ export class KeychainAdapter {
   hasCredentials(service: string): boolean {
     return this.getCredentials(service) !== null;
   }
+
+  /**
+   * Get password from Keychain by arbitrary service + account.
+   * Used by browse_action fill with keychain reference.
+   */
+  getPasswordByRef(service: string, account: string): string {
+    const result = execSync(
+      `security find-generic-password -s ${quote(service)} -a ${quote(account)} -w`,
+      { encoding: "utf-8" }
+    );
+    return result.trim();
+  }
 }
 
 function parsePassword(output: string): string | null {
