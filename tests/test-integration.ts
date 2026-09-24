@@ -11,6 +11,7 @@ import { SessionManager } from "../src/session-manager.js";
 import { stat, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 let failures = 0;
 
@@ -306,7 +307,7 @@ async function testMcpServerStartup() {
     const result = await new Promise<string>((resolve, reject) => {
       const proc = spawn("node", ["dist/index.js"], {
         stdio: ["pipe", "pipe", "pipe"],
-        cwd: "/Users/abe-yudai/repositories/abe-all/repositories/mcp-headless-browser",
+        cwd: fileURLToPath(new URL("..", import.meta.url)),
       });
 
       let output = "";
