@@ -152,10 +152,10 @@ export function registerBrowseSessionTools(
     {
       browser_id: z.string().describe("browse_open で取得した browser_id"),
       mode: z
-        .enum(["forms", "text", "html", "interactive"])
+        .enum(["forms", "text", "html", "interactive", "eval"])
         .default("forms")
         .describe(
-          "検査モード: forms=フォーム要素, text=テキスト, html=HTML, interactive=操作可能要素"
+          "検査モード: forms=フォーム要素, text=テキスト, html=HTML, interactive=操作可能要素, eval=JavaScript実行（selectorにJSコードを指定）"
         ),
       selector: z
         .string()
@@ -266,6 +266,21 @@ export function registerBrowseSessionTools(
             return el?.outerHTML?.trim() ?? "";
           }, scope);
           content = html.slice(0, max_chars);
+        } else if (mode === "eval") {
+          const script = selector ?? "document.title";
+          const result = await page.evaluate((code) => {
+            try {
+              // eslint-disable-next-line no-eval
+              const r = eval(code);
+              if (r === undefined) return "undefined";
+              if (r === null) return "null";
+              if (typeof r === "object") return JSON.stringify(r, null, 2);
+              return String(r);
+            } catch (e) {
+              return `Error: ${e instanceof Error ? e.message : String(e)}`;
+            }
+          }, script);
+          content = String(result).slice(0, max_chars);
         } else if (mode === "interactive") {
           const cssSelectorScript = generateCssSelectorScript();
           const items = await page.evaluate(
@@ -687,7 +702,190 @@ export function registerBrowseSessionTools(
   }
 
   // ─────────────────────────────────────────────────────
-  // 7. browse_close
+  // 7. browse_scroll
+  // ─────────────────────────────────────────────────────
+  server.tool(
+    "browse_scroll",
+    "ブラウザセッションでページまたは特定要素をスクロールします。SPA の遅延読み込みコンテンツの取得に使用します。",
+    {
+      browser_id: z.string().describe("browse_open で取得した browser_id"),
+      direction: z
+        .enum(["down", "up"])
+        .default("down")
+        .describe("スクロール方向"),
+      pixels: z
+        .number()
+        .default(800)
+        .describe("スクロール量（ピクセル）"),
+      selector: z
+        .string()
+        .optional()
+        .describe(
+          "スクロール対象のコンテナ要素の CSS セレクタ（省略時はページ全体）"
+        ),
+      wait_ms: z
+        .number()
+        .default(500)
+        .describe("スクロール後の待機時間（ms）。遅延読み込み待ちに使用"),
+    },
+    async ({ browser_id, direction, pixels, selector, wait_ms }) => {
+      try {
+        const session = getActiveSession(registry, browser_id);
+        registry.touch(browser_id);
+
+        const page = session.page;
+        const delta = direction === "down" ? pixels : -pixels;
+
+        if (selector) {
+          // Selector specified: use scrollBy on the target element
+          const scrollResult = await page.evaluate(
+            ({ sel, dy }: { sel: string; dy: number }) => {
+              const target = document.querySelector(sel);
+              if (!target)
+                return { success: false as const, error: "要素が見つかりません" };
+              const el = target as HTMLElement;
+              const beforeTop = el.scrollTop;
+              el.scrollBy(0, dy);
+              const afterTop = el.scrollTop;
+              return {
+                success: true as const,
+                scrolled: Math.abs(afterTop - beforeTop),
+                scroll_top: afterTop,
+                scroll_height: el.scrollHeight,
+                client_height: el.clientHeight,
+                at_top: afterTop === 0,
+                at_bottom: afterTop + el.clientHeight >= el.scrollHeight - 1,
+              };
+            },
+            { sel: selector, dy: delta }
+          );
+
+          if (wait_ms > 0) await page.waitForTimeout(wait_ms);
+          if (!scrollResult.success)
+            return makeError(`browse_scroll エラー: ${scrollResult.error}`);
+
+          const lines = [
+            `direction: ${direction}`,
+            `scrolled: ${scrollResult.scrolled}px`,
+            `scroll_top: ${scrollResult.scroll_top}`,
+            `scroll_height: ${scrollResult.scroll_height}`,
+            `client_height: ${scrollResult.client_height}`,
+            `at_top: ${scrollResult.at_top}`,
+            `at_bottom: ${scrollResult.at_bottom}`,
+          ];
+          return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+        }
+
+        // No selector: use mouse.wheel for maximum SPA compatibility
+        // (scrollBy doesn't work on some SPAs with custom scroll containers)
+        const beforeY = await page.evaluate(() => window.scrollY);
+        await page.mouse.wheel(0, delta);
+        if (wait_ms > 0) await page.waitForTimeout(wait_ms);
+        const afterState = await page.evaluate(() => ({
+          scrollY: window.scrollY,
+          scrollHeight: document.documentElement.scrollHeight,
+          clientHeight: window.innerHeight,
+        }));
+
+        // If window didn't scroll, try to find and scroll the deepest
+        // scrollable container (SPA frameworks like Onsen UI use nested
+        // overflow containers)
+        const windowScrolled = Math.abs(afterState.scrollY - beforeY);
+        if (windowScrolled === 0) {
+          const containerResult = await page.evaluate((dy: number) => {
+            // Walk all elements and find the one with overflow:auto/scroll
+            // and scrollHeight > clientHeight
+            const all = document.querySelectorAll("*");
+            let best: HTMLElement | null = null;
+            let bestHeight = 0;
+            for (const el of all) {
+              const style = getComputedStyle(el);
+              const overflow = style.overflowY;
+              if (
+                (overflow === "auto" || overflow === "scroll") &&
+                (el as HTMLElement).scrollHeight >
+                  (el as HTMLElement).clientHeight + 1
+              ) {
+                if ((el as HTMLElement).scrollHeight > bestHeight) {
+                  best = el as HTMLElement;
+                  bestHeight = (el as HTMLElement).scrollHeight;
+                }
+              }
+            }
+            if (!best) return { found: false as const };
+            const beforeTop = best.scrollTop;
+            best.scrollBy(0, dy);
+            const afterTop = best.scrollTop;
+            return {
+              found: true as const,
+              selector: best.tagName.toLowerCase() +
+                (best.id ? `#${best.id}` : "") +
+                (best.className
+                  ? `.${best.className.toString().split(" ").filter(Boolean).join(".")}`
+                  : ""),
+              scrolled: Math.abs(afterTop - beforeTop),
+              scroll_top: afterTop,
+              scroll_height: best.scrollHeight,
+              client_height: best.clientHeight,
+              at_top: afterTop === 0,
+              at_bottom:
+                afterTop + best.clientHeight >= best.scrollHeight - 1,
+            };
+          }, delta);
+
+          if (wait_ms > 0) await page.waitForTimeout(wait_ms);
+
+          if (containerResult.found) {
+            const lines = [
+              `direction: ${direction}`,
+              `container: ${containerResult.selector}`,
+              `scrolled: ${containerResult.scrolled}px`,
+              `scroll_top: ${containerResult.scroll_top}`,
+              `scroll_height: ${containerResult.scroll_height}`,
+              `client_height: ${containerResult.client_height}`,
+              `at_top: ${containerResult.at_top}`,
+              `at_bottom: ${containerResult.at_bottom}`,
+            ];
+            return {
+              content: [{ type: "text" as const, text: lines.join("\n") }],
+            };
+          }
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `direction: ${direction}\nscrolled: 0px\nno scrollable container found`,
+              },
+            ],
+          };
+        }
+
+        const lines = [
+          `direction: ${direction}`,
+          `scrolled: ${windowScrolled}px`,
+          `scroll_top: ${afterState.scrollY}`,
+          `scroll_height: ${afterState.scrollHeight}`,
+          `client_height: ${afterState.clientHeight}`,
+          `at_top: ${afterState.scrollY === 0}`,
+          `at_bottom: ${afterState.scrollY + afterState.clientHeight >= afterState.scrollHeight - 1}`,
+        ];
+        return {
+          content: [{ type: "text" as const, text: lines.join("\n") }],
+        };
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        if (msg.includes("Target closed") || msg.includes("ターゲットが閉じ")) {
+          registry.remove(browser_id);
+          return makeError("ブラウザが閉じられました");
+        }
+        return makeError(`browse_scroll エラー: ${msg}`);
+      }
+    }
+  );
+
+  // ─────────────────────────────────────────────────────
+  // 8. browse_close
   // ─────────────────────────────────────────────────────
   server.tool(
     "browse_close",
