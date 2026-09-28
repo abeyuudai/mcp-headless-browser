@@ -57,7 +57,7 @@ export function registerBrowseSessionTools(
   // ─────────────────────────────────────────────────────
   server.tool(
     "browse_open",
-    "新規ブラウザセッションを開始します。headed Chrome を起動し、URL を開きます。Keychain 自動入力・セッション復元に対応。",
+    "新規ブラウザセッションを開始します。既定は headed Chrome (headless で切り替え可) で URL を開きます。Keychain 自動入力・セッション復元に対応。",
     {
       service: z
         .string()
@@ -78,14 +78,20 @@ export function registerBrowseSessionTools(
         .boolean()
         .default(true)
         .describe("保存済みセッションを読み込む"),
+      headless: z
+        .boolean()
+        .default(false)
+        .describe(
+          "true ならヘッドレスで起動する。2FA・CAPTCHA 等で人の手動操作が要る時は既定の false (headed) のまま使う"
+        ),
     },
-    async ({ service, url, auto_login, idle_timeout_minutes, load_session }) => {
+    async ({ service, url, auto_login, idle_timeout_minutes, load_session, headless }) => {
       try {
         const storageState = load_session
           ? await sessionManager.load(service)
           : null;
 
-        const browser = await chromium.launch({ headless: false });
+        const browser = await chromium.launch({ headless });
         const context = await browser.newContext({
           ...(storageState ? { storageState: storageState as never } : {}),
           userAgent: USER_AGENT,
