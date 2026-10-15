@@ -1,8 +1,8 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { chromium } from "playwright";
+import { chromiumLaunchArgs } from "../runtime-env.js";
 import { mkdir } from "node:fs/promises";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import type { SessionManager } from "../session-manager.js";
 
@@ -11,7 +11,8 @@ const USER_AGENT =
 
 export function registerBrowseScreenshot(
   server: McpServer,
-  sessionManager: SessionManager
+  sessionManager: SessionManager,
+  stateDir: string
 ): void {
   server.tool(
     "browse_screenshot",
@@ -49,11 +50,7 @@ export function registerBrowseScreenshot(
 
       let browser;
       try {
-        const screenshotsDir = join(
-          homedir(),
-          ".kurosuke",
-          "screenshots"
-        );
+        const screenshotsDir = join(stateDir, "screenshots");
         await mkdir(screenshotsDir, { recursive: true, mode: 0o700 });
 
         const timestamp = new Date()
@@ -64,7 +61,7 @@ export function registerBrowseScreenshot(
         const filename = `${service}_${timestamp}.png`;
         const filePath = join(screenshotsDir, filename);
 
-        browser = await chromium.launch({ headless: true });
+        browser = await chromium.launch({ headless: true, args: chromiumLaunchArgs() });
         const context = await browser.newContext({
           storageState: storageState as never,
           userAgent: USER_AGENT,

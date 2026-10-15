@@ -1,5 +1,4 @@
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import { join } from "node:path";
 
 export interface SessionInfo {
@@ -14,8 +13,8 @@ const SERVICE_NAME_PATTERN = /^[a-z0-9_-]+$/;
 export class SessionManager {
   private readonly sessionsDir: string;
 
-  constructor() {
-    this.sessionsDir = join(homedir(), ".kurosuke", "sessions");
+  constructor(stateDir: string) {
+    this.sessionsDir = join(stateDir, "sessions");
   }
 
   private validateService(service: string): void {
@@ -31,8 +30,6 @@ export class SessionManager {
   }
 
   private async ensureDir(): Promise<void> {
-    const kurousukeDir = join(homedir(), ".kurosuke");
-    await mkdir(kurousukeDir, { recursive: true, mode: 0o700 });
     await mkdir(this.sessionsDir, { recursive: true, mode: 0o700 });
   }
 

@@ -1,6 +1,19 @@
 # mcp-headless-browser
 
-macOS 向けの MCP サーバー。Playwright + Chromium で Web ページの取得・認証付き操作・対話的なフォーム操作を行う。Cookie セッションは `~/.kurosuke/sessions/` に永続化され、認証情報は macOS Keychain から取得できる。
+macOS 向けの MCP サーバー。Playwright + Chromium で Web ページの取得・認証付き操作・対話的なフォーム操作を行う。Cookie セッションは `$HEADLESS_BROWSER_STATE_DIR/sessions/` に永続化され、認証情報は macOS Keychain から取得できる。
+
+## 設定
+
+| 環境変数 | 必須 | 内容 |
+|---|---|---|
+| `HEADLESS_BROWSER_STATE_DIR` | 必須 | ログインの状態（`sessions/`）とスクリーンショット（`screenshots/`）を置く絶対パスのディレクトリ。未設定・空・相対パスだと、理由を stderr に出して終了コード 1 で起動を止める |
+| `SANDBOX_RUNTIME` / `CODEX_SANDBOX` | 任意 | どちらかが設定されている時だけ、Chromium を `--single-process` 付きで起動する（sandbox の中では必要） |
+
+登録例:
+
+```bash
+claude mcp add -s user headless-browser -e HEADLESS_BROWSER_STATE_DIR=/abs/path/to/state -- node /abs/path/to/mcp-headless-browser/dist/index.js
+```
 
 ## ツール一覧
 
@@ -135,7 +148,7 @@ security add-generic-password -s "kurosuke.example" -a "user@example.com" -w "pa
 
 ## セッションファイル
 
-`~/.kurosuke/sessions/<service>.json` に Playwright の `storageState` 形式で保存される。
+`$HEADLESS_BROWSER_STATE_DIR/sessions/<service>.json` に Playwright の `storageState` 形式で保存される。
 - `cookies`: ブラウザの全 Cookie
 - `origins`: localStorage / sessionStorage
 

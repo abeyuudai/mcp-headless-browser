@@ -18,6 +18,7 @@
 
 import { chromium, type Browser } from "playwright";
 import { SessionManager } from "../src/session-manager.js";
+import { resolveStateDir } from "../src/runtime-env.js";
 import { unlink } from "node:fs/promises";
 
 const SERVICE = "__test_browse_login__";
@@ -25,7 +26,7 @@ const URL = "https://example.com";
 const TIMEOUT_MS = 60_000; // 1 minute
 
 async function main() {
-  const sm = new SessionManager();
+  const sm = new SessionManager(resolveStateDir());
   let failures = 0;
 
   function assert(label: string, condition: boolean, detail?: string) {
