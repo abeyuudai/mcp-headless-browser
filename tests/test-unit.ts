@@ -8,8 +8,14 @@ import { SessionManager } from "../src/session-manager.js";
 import { KeychainAdapter } from "../src/keychain-adapter.js";
 import { BrowserSessionRegistry } from "../src/browser-registry.js";
 import type { BrowserSession } from "../src/browser-registry.js";
-import { execSync } from "node:child_process";
-import { unlink } from "node:fs/promises";
+import { resolveStateDir, chromiumLaunchArgs, STATE_DIR_ENV } from "../src/runtime-env.js";
+import { execSync, spawnSync } from "node:child_process";
+import { mkdtemp, rm, stat, unlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 let failures = 0;
 
@@ -22,9 +28,48 @@ function assert(label: string, condition: boolean, detail?: string) {
   }
 }
 
+async function testRuntimeEnv() {
+  console.log("\n=== runtime-env ===");
+
+  for (const [label, env] of [
+    ["unset", {}],
+    ["empty", { [STATE_DIR_ENV]: "" }],
+    ["relative path", { [STATE_DIR_ENV]: "state/dir" }],
+  ] as const) {
+    let message = "";
+    try { resolveStateDir(env); } catch (e) { message = (e as Error).message; }
+    assert(`resolveStateDir() throws when ${label}`, message.includes(STATE_DIR_ENV), message);
+  }
+  assert(
+    "resolveStateDir() returns the absolute path as is",
+    resolveStateDir({ [STATE_DIR_ENV]: "/abs/state" }) === "/abs/state"
+  );
+
+  assert("chromiumLaunchArgs() → [] without sandbox marker", chromiumLaunchArgs({}).length === 0);
+  assert(
+    "chromiumLaunchArgs() → --single-process with SANDBOX_RUNTIME",
+    JSON.stringify(chromiumLaunchArgs({ SANDBOX_RUNTIME: "1" })) === '["--single-process"]'
+  );
+  assert(
+    "chromiumLaunchArgs() → --single-process with CODEX_SANDBOX",
+    JSON.stringify(chromiumLaunchArgs({ CODEX_SANDBOX: "seatbelt" })) === '["--single-process"]'
+  );
+
+  const env = { ...process.env };
+  delete env[STATE_DIR_ENV];
+  const run = spawnSync(process.execPath, [...process.execArgv, join(repoRoot, "src/index.ts")], {
+    env,
+    encoding: "utf-8",
+    timeout: 30000,
+  });
+  assert("server exits non-zero when state dir is unset", run.status !== 0 && run.status !== null, `status=${run.status}`);
+  assert("server reports the env var name on stderr", (run.stderr ?? "").includes(STATE_DIR_ENV), run.stderr);
+}
+
 async function testSessionManager() {
   console.log("\n=== SessionManager ===");
-  const sm = new SessionManager();
+  const stateDir = await mkdtemp(join(tmpdir(), "hb-unit-"));
+  const sm = new SessionManager(stateDir);
   const svc = "__test_unit__";
 
   // Clean state
@@ -45,6 +90,8 @@ async function testSessionManager() {
   // getInfo
   const info2 = await sm.getInfo(svc);
   assert("getInfo() → exists=true", info2.exists);
+  assert("session file lives under <stateDir>/sessions", info2.path === join(stateDir, "sessions", `${svc}.json`), info2.path);
+  assert("session file exists on disk", (await stat(info2.path)).isFile());
   assert("getInfo() → lastModified is Date", info2.lastModified instanceof Date);
 
   // listAll
@@ -74,6 +121,8 @@ async function testSessionManager() {
     try { await sm.exists(good); } catch { threw = true; }
     assert(`accepts valid name "${good}"`, !threw);
   }
+
+  await rm(stateDir, { recursive: true, force: true });
 }
 
 async function testKeychainAdapter() {
@@ -202,7 +251,7 @@ function makeMockPage() {
 
 async function testBrowserSessionRegistry() {
   console.log("\n=== BrowserSessionRegistry ===");
-  const sm = new SessionManager();
+  const sm = new SessionManager(await mkdtemp(join(tmpdir(), "hb-unit-")));
 
   // 1. create returns BrowserSession with correct ID format
   {
@@ -402,6 +451,7 @@ async function testBrowserSessionRegistry() {
 
 async function main() {
   console.log("=== ユニットテスト ===");
+  await testRuntimeEnv();
   await testSessionManager();
   await testKeychainAdapter();
   await testKeychainGetPasswordByRef();

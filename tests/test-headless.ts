@@ -6,8 +6,8 @@
 
 import { chromium } from "playwright";
 import { SessionManager } from "../src/session-manager.js";
+import { resolveStateDir } from "../src/runtime-env.js";
 import { unlink } from "node:fs/promises";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { stat, mkdir } from "node:fs/promises";
 
@@ -24,7 +24,7 @@ function assert(label: string, condition: boolean, detail?: string) {
 
 async function testBrowseActionFlow() {
   console.log("\n=== browse_action フロー ===");
-  const sm = new SessionManager();
+  const sm = new SessionManager(resolveStateDir());
   const svc = "__test_action__";
   const emptyState = { cookies: [], origins: [] };
   await sm.save(svc, emptyState);
@@ -85,12 +85,12 @@ async function testBrowseActionFlow() {
 
 async function testScreenshotFlow() {
   console.log("\n=== browse_screenshot フロー ===");
-  const sm = new SessionManager();
+  const sm = new SessionManager(resolveStateDir());
   const svc = "__test_ss__";
   const emptyState = { cookies: [], origins: [] };
   await sm.save(svc, emptyState);
 
-  const screenshotsDir = join(homedir(), ".kurosuke", "screenshots");
+  const screenshotsDir = join(resolveStateDir(), "screenshots");
   await mkdir(screenshotsDir, { recursive: true, mode: 0o700 });
   const filePath = join(screenshotsDir, "__test_screenshot__.png");
 
@@ -127,7 +127,7 @@ async function testScreenshotFlow() {
 
 async function testSessionExpiredFlow() {
   console.log("\n=== セッション切れフロー ===");
-  const sm = new SessionManager();
+  const sm = new SessionManager(resolveStateDir());
   const svc = "__test_expired__";
 
   // No session saved
@@ -160,7 +160,7 @@ async function testSessionExpiredFlow() {
 
 async function testStorageStateWithContext() {
   console.log("\n=== storageState のコンテキスト間受け渡し ===");
-  const sm = new SessionManager();
+  const sm = new SessionManager(resolveStateDir());
   const svc = "__test_ctx__";
 
   const browser = await chromium.launch({ headless: true });

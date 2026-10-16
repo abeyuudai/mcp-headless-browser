@@ -12,6 +12,7 @@
 
 import { chromium, type Browser, type Page } from "playwright";
 import { SessionManager } from "../src/session-manager.js";
+import { resolveStateDir } from "../src/runtime-env.js";
 import { KeychainAdapter } from "../src/keychain-adapter.js";
 import { unlink } from "node:fs/promises";
 
@@ -85,7 +86,7 @@ async function autoFill(page: Page, account: string, password: string): Promise<
 }
 
 async function main() {
-  const sm = new SessionManager();
+  const sm = new SessionManager(resolveStateDir());
   const kc = new KeychainAdapter();
 
   console.log("=== 楽天ログイン 実機テスト ===\n");

@@ -3,13 +3,13 @@
  *
  * 実行: npx tsx tests/test-integration.ts
  *
- * 前提: 楽天のセッション（~/.kurosuke/sessions/rakuten.json）が保存済みであること
+ * 前提: 楽天のセッション（$HEADLESS_BROWSER_STATE_DIR/sessions/rakuten.json）が保存済みであること
  */
 
 import { chromium } from "playwright";
 import { SessionManager } from "../src/session-manager.js";
+import { resolveStateDir } from "../src/runtime-env.js";
 import { stat, unlink } from "node:fs/promises";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -70,7 +70,7 @@ async function testFetchPage() {
 
 async function testBrowseStatus() {
   console.log("\n=== browse_status ===");
-  const sm = new SessionManager();
+  const sm = new SessionManager(resolveStateDir());
 
   // Service that doesn't exist
   const infoNone = await sm.getInfo("__nonexistent__");
@@ -198,7 +198,7 @@ async function testBrowseActionActions() {
 
 async function testBrowseActionAuthenticated() {
   console.log("\n=== browse_action: 認証済みセッションでアクセス ===");
-  const sm = new SessionManager();
+  const sm = new SessionManager(resolveStateDir());
 
   const state = await sm.load("rakuten");
   if (!state) {
@@ -259,7 +259,7 @@ async function testBrowseActionAuthenticated() {
 
 async function testBrowseScreenshotAuthenticated() {
   console.log("\n=== browse_screenshot: 認証済みスクリーンショット ===");
-  const sm = new SessionManager();
+  const sm = new SessionManager(resolveStateDir());
 
   const state = await sm.load("rakuten");
   if (!state) {
@@ -267,7 +267,7 @@ async function testBrowseScreenshotAuthenticated() {
     return;
   }
 
-  const screenshotsDir = join(homedir(), ".kurosuke", "screenshots");
+  const screenshotsDir = join(resolveStateDir(), "screenshots");
   const filePath = join(screenshotsDir, "__test_rakuten_ss__.png");
 
   const browser = await chromium.launch({ headless: true });
