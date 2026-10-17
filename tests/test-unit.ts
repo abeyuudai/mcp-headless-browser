@@ -8,7 +8,7 @@ import { SessionManager } from "../src/session-manager.js";
 import { KeychainAdapter } from "../src/keychain-adapter.js";
 import { BrowserSessionRegistry } from "../src/browser-registry.js";
 import type { BrowserSession } from "../src/browser-registry.js";
-import { resolveStateDir, chromiumLaunchArgs, STATE_DIR_ENV } from "../src/runtime-env.js";
+import { resolveStateDir, chromiumLaunchArgs, chromiumProxy, chromiumLaunchOptions, STATE_DIR_ENV } from "../src/runtime-env.js";
 import { execSync, spawnSync } from "node:child_process";
 import { mkdtemp, rm, stat, unlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -53,6 +53,35 @@ async function testRuntimeEnv() {
   assert(
     "chromiumLaunchArgs() → --single-process with CODEX_SANDBOX",
     JSON.stringify(chromiumLaunchArgs({ CODEX_SANDBOX: "seatbelt" })) === '["--single-process"]'
+  );
+
+  assert("chromiumProxy() → undefined without proxy env", chromiumProxy({}) === undefined);
+  assert(
+    "chromiumLaunchOptions() without proxy env is exactly { headless, args } (no proxy key)",
+    JSON.stringify(chromiumLaunchOptions({ headless: true }, {})) === '{"headless":true,"args":[]}'
+  );
+  const proxied = chromiumProxy({ HTTPS_PROXY: "http://u%40x:p%3Aw@localhost:61437", NO_PROXY: "localhost,10.0.0.0/8" });
+  assert("chromiumProxy() → server without credentials", proxied?.server === "http://localhost:61437");
+  assert("chromiumProxy() → decoded username", proxied?.username === "u@x");
+  assert("chromiumProxy() → decoded password", proxied?.password === "p:w");
+  assert("chromiumProxy() → bypass from NO_PROXY", proxied?.bypass === "localhost,10.0.0.0/8");
+  assert(
+    "chromiumProxy() → no credentials/bypass keys when absent",
+    JSON.stringify(chromiumProxy({ HTTPS_PROXY: "http://localhost:1" })) === '{"server":"http://localhost:1"}'
+  );
+  assert(
+    "chromiumProxy() → HTTPS_PROXY wins over HTTP_PROXY",
+    chromiumProxy({ HTTP_PROXY: "http://localhost:2", HTTPS_PROXY: "http://localhost:1" })?.server === "http://localhost:1"
+  );
+  assert(
+    "chromiumProxy() → ALL_PROXY alone is used",
+    chromiumProxy({ ALL_PROXY: "http://localhost:3" })?.server === "http://localhost:3"
+  );
+  assert("chromiumProxy() → undefined for unparsable value", chromiumProxy({ HTTPS_PROXY: "not a url" }) === undefined);
+  const both = chromiumLaunchOptions({ headless: false }, { SANDBOX_RUNTIME: "1", HTTPS_PROXY: "http://localhost:1" });
+  assert(
+    "chromiumLaunchOptions() → --single-process and proxy together",
+    JSON.stringify(both.args) === '["--single-process"]' && both.proxy?.server === "http://localhost:1" && both.headless === false
   );
 
   const env = { ...process.env };

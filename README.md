@@ -7,7 +7,7 @@ macOS 向けの MCP サーバー。Playwright + Chromium で Web ページの取
 | 環境変数 | 必須 | 内容 |
 |---|---|---|
 | `HEADLESS_BROWSER_STATE_DIR` | 必須 | ログインの状態（`sessions/`）とスクリーンショット（`screenshots/`）を置く絶対パスのディレクトリ。未設定・空・相対パスだと、理由を stderr に出して終了コード 1 で起動を止める |
-| `SANDBOX_RUNTIME` / `CODEX_SANDBOX` | 任意 | どちらかが設定されている時だけ、Chromium を `--single-process` 付きで起動する（sandbox の中では必要） |
+| `SANDBOX_RUNTIME` / `CODEX_SANDBOX` | 任意 | どちらかが設定されている時だけ、Chromium を `--single-process` 付きで起動する（sandbox の中では必要）。`HTTPS_PROXY` 等が設定されていれば、Chromium の proxy オプションとして渡す（Chromium は環境変数を読まないため） |
 
 登録例:
 
