@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { chromium } from "playwright";
-import { chromiumLaunchArgs } from "../runtime-env.js";
+import { chromiumLaunchOptions } from "../runtime-env.js";
 import type { SessionManager } from "../session-manager.js";
 import { KeychainAdapter } from "../keychain-adapter.js";
 import { USER_AGENT, detectLoginRedirect } from "./_browser-helpers.js";
@@ -73,7 +73,7 @@ export function registerBrowseAction(
 
       let browser;
       try {
-        browser = await chromium.launch({ headless: true, args: chromiumLaunchArgs() });
+        browser = await chromium.launch(chromiumLaunchOptions({ headless: true }));
         const context = await browser.newContext({
           storageState: storageState as never,
           userAgent: USER_AGENT,

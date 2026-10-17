@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { chromium } from "playwright";
-import { chromiumLaunchArgs } from "../runtime-env.js";
+import { chromiumLaunchOptions } from "../runtime-env.js";
 import type { SessionManager } from "../session-manager.js";
 import { KeychainAdapter } from "../keychain-adapter.js";
 import { BrowserSessionRegistry } from "../browser-registry.js";
@@ -92,7 +92,7 @@ export function registerBrowseSessionTools(
           ? await sessionManager.load(service)
           : null;
 
-        const browser = await chromium.launch({ headless, args: chromiumLaunchArgs() });
+        const browser = await chromium.launch(chromiumLaunchOptions({ headless }));
         const context = await browser.newContext({
           ...(storageState ? { storageState: storageState as never } : {}),
           userAgent: USER_AGENT,

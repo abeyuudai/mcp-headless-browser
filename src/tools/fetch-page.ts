@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { chromium } from "playwright";
-import { chromiumLaunchArgs } from "../runtime-env.js";
+import { chromiumLaunchOptions } from "../runtime-env.js";
 
 const USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
@@ -24,7 +24,7 @@ export function registerFetchPage(server: McpServer): void {
     async ({ url, wait_seconds }) => {
       let browser;
       try {
-        browser = await chromium.launch({ headless: true, args: chromiumLaunchArgs() });
+        browser = await chromium.launch(chromiumLaunchOptions({ headless: true }));
         const context = await browser.newContext({
           userAgent: USER_AGENT,
           locale: "ja-JP",
