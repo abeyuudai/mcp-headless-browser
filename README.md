@@ -156,13 +156,37 @@ security add-generic-password -s "kurosuke.example" -a "user@example.com" -w "pa
 
 ## 開発
 
+Node.js は Brotli の CVE-2026-111497 を修正した 24.22.1 LTS を使用する。
+`process.versions.brotli` の表示だけでは修正の有無を判定できない。
+Node.js 24.22.1 は Brotli の版表示が 1.2.0 のまま、修正コミットを取り込んでいる。
+根拠は [Node.js のリリースノート](https://nodejs.org/en/blog/release/v24.22.1)。
+
 ```bash
-npm install
+npm ci
 npm run build
 npx tsx tests/test-unit.ts   # ユニットテスト（ブラウザ不要）
 ```
 
 `src/` のソースは TypeScript ESM。`dist/` にビルド成果物が出る。MCP クライアントは `node dist/index.js` を起動する。
+
+### 稼働先への更新反映
+
+merge だけでは稼働先の `node_modules` と `dist` は更新されない。
+稼働先に更新コミットを反映後、次のスクリプトに稼働先の絶対パスと
+Node.js 24.22.1 の実行ファイルの絶対パスを渡す。
+
+```bash
+bash scripts/update-runtime.sh /abs/path/to/mcp-headless-browser /abs/path/to/node
+```
+
+依存関係の再作成、Chromium のインストール、ビルドを順に実行し、失敗した時点で停止する。
+インストール時は `PLAYWRIGHT_SKIP_BROWSER_GC=1` で共有キャッシュ内の他のブラウザの自動削除を止める。
+ブラウザは起動中の他用途と共有されるため、キャッシュ全体を削除しない。
+
+処理後は MCP クライアントで headless-browser 接続を再接続する。
+新しいサーバーで `browse_open` に `url: "about:blank"`、`headless: true`、
+`auto_login: false`、`load_session: false`、検証専用の `service` を指定して起動を確かめ、
+`browse_close` で閉じる。接続を再起動するまでは、既存サーバーが更新前のコードを保持する。
 
 ## アーキテクチャ
 

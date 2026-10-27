@@ -10,6 +10,15 @@ import { resolveStateDir } from "../src/runtime-env.js";
 import { unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { stat, mkdir } from "node:fs/promises";
+import { createServer } from "node:http";
+
+let fixtureUrl: string;
+const fixtureServer = createServer((_request, response) => {
+  response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+  response.end(`<!doctype html><html><head><title>Example Test</title></head>
+    <body><h1>Example Test</h1><p>Browser operation fixture.</p>
+    <a href="/#details">Details</a></body></html>`);
+});
 
 let failures = 0;
 
@@ -39,7 +48,7 @@ async function testBrowseActionFlow() {
     const page = await context.newPage();
 
     // Navigate
-    await page.goto("https://example.com", { waitUntil: "domcontentloaded", timeout: 30000 });
+    await page.goto(fixtureUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
     await page.waitForTimeout(1000);
 
     const title = await page.title();
@@ -66,7 +75,7 @@ async function testBrowseActionFlow() {
     await sm.save(svc, updated);
     assert("storageState 保存成功", await sm.exists(svc));
 
-    // click (test on example.com's link)
+    // Click the fixture link.
     const linkExists = await page.evaluate(() => !!document.querySelector("a"));
     if (linkExists) {
       await page.click("a");
@@ -101,7 +110,7 @@ async function testScreenshotFlow() {
       locale: "ja-JP",
     });
     const page = await context.newPage();
-    await page.goto("https://example.com", { waitUntil: "domcontentloaded", timeout: 30000 });
+    await page.goto(fixtureUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
     await page.waitForTimeout(1000);
 
     // Viewport screenshot
@@ -146,10 +155,10 @@ async function testSessionExpiredFlow() {
     });
     const page = await context.newPage();
 
-    // Access a URL that doesn't redirect (example.com)
-    await page.goto("https://example.com", { waitUntil: "domcontentloaded", timeout: 30000 });
+    // Access a URL that does not redirect.
+    await page.goto(fixtureUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
     const url = page.url();
-    assert("リダイレクトなし → URL 一致", url.includes("example.com"));
+    assert("リダイレクトなし → URL 一致", url === fixtureUrl);
 
   } finally {
     await browser.close();
@@ -168,13 +177,13 @@ async function testStorageStateWithContext() {
     // Context 1: visit page, get cookies
     const ctx1 = await browser.newContext({ locale: "ja-JP" });
     const page1 = await ctx1.newPage();
-    await page1.goto("https://example.com", { waitUntil: "domcontentloaded", timeout: 30000 });
+    await page1.goto(fixtureUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
 
     // Add a cookie manually for testing
     await ctx1.addCookies([{
       name: "test_session",
       value: "abc123",
-      domain: ".example.com",
+      domain: new URL(fixtureUrl).hostname,
       path: "/",
     }]);
 
@@ -207,10 +216,23 @@ async function testStorageStateWithContext() {
 
 async function main() {
   console.log("=== ヘッドレスブラウザテスト ===");
-  await testBrowseActionFlow();
-  await testScreenshotFlow();
-  await testSessionExpiredFlow();
-  await testStorageStateWithContext();
+  await new Promise<void>((resolve, reject) => {
+    fixtureServer.once("error", reject);
+    fixtureServer.listen(0, "127.0.0.1", resolve);
+  });
+  const address = fixtureServer.address();
+  if (!address || typeof address === "string") throw new Error("検証用サーバーの起動に失敗しました");
+  fixtureUrl = `http://127.0.0.1:${address.port}/`;
+  try {
+    await testBrowseActionFlow();
+    await testScreenshotFlow();
+    await testSessionExpiredFlow();
+    await testStorageStateWithContext();
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      fixtureServer.close(error => error ? reject(error) : resolve());
+    });
+  }
 
   console.log(`\n=== 結果: ${failures === 0 ? "全テスト合格 ✓" : `${failures} 件失敗 ✗`} ===\n`);
   process.exit(failures > 0 ? 1 : 0);
